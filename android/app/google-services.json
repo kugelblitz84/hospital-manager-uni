@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "214941779513",
+    "project_id": "hospital-manager-uni",
+    "storage_bucket": "hospital-manager-uni.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:214941779513:android:d58c30fae9d4f523b2efe8",
+        "android_client_info": {
+          "package_name": "com.example.medicare"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBJdQAkNoDxQ-l8FBooj859RFEguE_rVos"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
