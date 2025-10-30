@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:medicare/pages/landingPage.dart';
+import 'package:medicare/services/generalServices.dart';
 
-void main(){
+void main() {
   runApp(const ProviderScope(child: MediCareApp()));
 }
 
@@ -14,14 +16,8 @@ class MediCareApp extends StatelessWidget {
     return GetMaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'MediCare',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-      ),
-      home: const Scaffold(
-        body: Center(
-          child: Text('Welcome to MediCare App'),
-        ),
-      ),
+      theme: ThemeData(primarySwatch: Colors.blue),
+      home: LandingPage(),
     );
   }
 }

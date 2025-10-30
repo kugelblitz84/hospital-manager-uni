@@ -1,99 +1,70 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-class UserData_Doctor {
-  final String uid;
-  final String email;
-  final String name;
-  final String specialization;
-  late List<Appointments>? appointments;
+class AppState {
+  String? role;
+  bool isLoading = true;
+}
 
-  UserData_Doctor({
-    required this.uid,
-    required this.email,
-    required this.name,
-    required this.specialization,
+class doctor {
+  String? name;
+  String? email;
+  String? speciality;
+  String? uid;
+  String? createdAt;
+  List<String>? certifications;
+  doctor({
+    this.name,
+    this.email,
+    this.speciality,
+    this.uid,
+    this.createdAt,
+    this.certifications,
   });
 }
 
-class UserData_Patient {
-  final String uid;
-  final String email;
-  final String name;
-  final int age;
-  final String gender;
-  final String medicalHistory;
-  late List<Appointments>? appointments;
-
-  UserData_Patient({
-    required this.uid,
-    required this.email,
-    required this.name,
-    required this.age,
-    required this.gender,
-    required this.medicalHistory,
+class patient {
+  String? name;
+  String? email;
+  String? uid;
+  String? createdAt;
+  String? phone;
+  String? address;
+  String? age;
+  String? medicalHistory;
+  patient({
+    this.name,
+    this.email,
+    this.uid,
+    this.createdAt,
+    this.phone,
+    this.address,
+    this.age,
+    this.medicalHistory,
   });
 }
 
-class Appointments {
-  final String appointmentId;
-  final String doctorId;
-  final String patientId;
-  final DateTime dateTime;
-  final String reason;
-  final String status;
-
-  Appointments({
-    required this.appointmentId,
-    required this.doctorId,
-    required this.patientId,
-    required this.dateTime,
-    required this.reason,
-    required this.status,
-  });
+class receptionist {
+  static String? name;
+  static String? email;
+  static String? uid;
+  static String? createdAt;
 }
 
+class inventoryManager {
+  static String? name;
+  static String? email;
+  static String? uid;
+  static String? createdAt;
+}
 
-class UserData_DoctorNotifier extends Notifier<UserData_Doctor?> {
+class appStateNotifier extends Notifier<AppState> {
   @override
-  UserData_Doctor? build() {
-    return null; // Initial state is null (no user)
+  AppState build() {
+    return AppState();
   }
 
-  void setUser(UserData_Doctor user) {
-    state = user;
-  }
-
-  void clearUser() {
-    state = null;
+  void initUser() {
+    state.isLoading = true;
+    
   }
 }
-
-class UserData_PatientNotifier extends Notifier<UserData_Patient?> {
-  @override
-  UserData_Patient? build() {
-    return null; // Initial state is null (no user)
-  }
-
-  void setUser(UserData_Patient user) {
-    state = user;
-  }
-
-  void clearUser() {
-    state = null;
-  }
-}
-
-class AppointmentsNotifier extends Notifier<List<Appointments>> {
-  @override
-  List<Appointments> build() {
-    return []; // Initial state is an empty list
-  }
-
-  void setAppointments(List<Appointments> appointments) {
-    state = appointments;
-  }
-}
-
-final DoctorProvider = NotifierProvider<UserData_DoctorNotifier, UserData_Doctor?>(() => UserData_DoctorNotifier());
-final PatientProvider = NotifierProvider<UserData_PatientNotifier, UserData_Patient?>(() => UserData_PatientNotifier());
-final AppointmentsProvider = NotifierProvider<AppointmentsNotifier, List<Appointments>>(() => AppointmentsNotifier());
