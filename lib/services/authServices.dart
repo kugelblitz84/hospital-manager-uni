@@ -1,5 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class firebaseServices {
   // Firebase authentication methods
@@ -34,6 +36,19 @@ class firebaseServices {
     }
   }
 
+  static Future<dynamic> signOut() async {
+    try {
+      final auth = FirebaseAuth.instance;
+      SharedPreferences sharedPreferences =
+          await SharedPreferences.getInstance();
+      await auth.signOut();
+      await sharedPreferences.clear();
+      return {"status": "success"};
+    } catch (e) {
+      return {"status": "error", "message": e.toString()};
+    }
+  }
+
   static Future<dynamic> createUser(
     String email,
     String role,
@@ -49,11 +64,15 @@ class firebaseServices {
       if (querySnapshot.docs.isNotEmpty) {
         return {"status": "error", "message": "Email already exists."};
       }
-      final dynamic userDoc = await firestore.collection(role).add({
-        'email': email,
-        'role': role,
-        ...data,
-      });
+
+      final payload = <String, dynamic>{'email': email, 'role': role, ...?data};
+      final uid = payload['uid'];
+      if (uid is String && uid.isNotEmpty) {
+        await firestore.collection(role).doc(uid).set(payload);
+        return {"status": "success", "userId": uid};
+      }
+
+      final userDoc = await firestore.collection(role).add(payload);
       return {"status": "success", "userId": userDoc.id};
     } catch (e) {
       return {"status": "error", "message": e.toString()};
@@ -89,10 +108,39 @@ class firebaseServices {
     try {
       final firestore = FirebaseFirestore.instance;
       QuerySnapshot querySnapshot = await firestore.collection(role).get();
-      List<dynamic> users = querySnapshot.docs
-          .map((doc) => doc.data())
-          .toList();
+      List<dynamic> users = querySnapshot.docs.map((doc) {
+        final data = Map<String, dynamic>.from(
+          doc.data() as Map<String, dynamic>,
+        );
+        data.putIfAbsent('uid', () => doc.id);
+        data.putIfAbsent('role', () => role);
+        return data;
+      }).toList();
       return {"status": "success", "data": users};
+    } catch (e) {
+      return {"status": "error", "message": e.toString()};
+    }
+  }
+
+  static Future<dynamic> adminCreateUserAccount(
+    String email,
+    String password,
+  ) async {
+    try {
+      final defaultApp = Firebase.app();
+      final tempApp = await Firebase.initializeApp(
+        name: 'admin-helper-${DateTime.now().millisecondsSinceEpoch}',
+        options: defaultApp.options,
+      );
+      final tempAuth = FirebaseAuth.instanceFor(app: tempApp);
+      final credential = await tempAuth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+      await tempApp.delete();
+      return {"status": "success", "user": credential.user};
+    } on FirebaseAuthException catch (e) {
+      return {"status": "error", "message": e.message};
     } catch (e) {
       return {"status": "error", "message": e.toString()};
     }
