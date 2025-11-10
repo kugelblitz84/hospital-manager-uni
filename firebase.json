@@ -1,1 +1,39 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"hospital-manager-uni","appId":"1:214941779513:android:d58c30fae9d4f523b2efe8","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"hospital-manager-uni","configurations":{"android":"1:214941779513:android:d58c30fae9d4f523b2efe8","ios":"1:214941779513:ios:876e78b66660bac4b2efe8","macos":"1:214941779513:ios:876e78b66660bac4b2efe8","web":"1:214941779513:web:e9415ee0b390dc4ab2efe8","windows":"1:214941779513:web:dd18f016c7514087b2efe8"}}}}}}
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "hospital-manager-uni",
+          "appId": "1:214941779513:android:d58c30fae9d4f523b2efe8",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "hospital-manager-uni",
+          "configurations": {
+            "android": "1:214941779513:android:d58c30fae9d4f523b2efe8",
+            "ios": "1:214941779513:ios:876e78b66660bac4b2efe8",
+            "macos": "1:214941779513:ios:876e78b66660bac4b2efe8",
+            "web": "1:214941779513:web:e9415ee0b390dc4ab2efe8",
+            "windows": "1:214941779513:web:dd18f016c7514087b2efe8"
+          }
+        }
+      }
+    }
+  },
+  "hosting": {
+    "public": "build/web",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}

@@ -24,7 +24,6 @@ class _SignUpPageState extends ConsumerState<SignUpPage> {
   final _certificationsController = TextEditingController();
 
   final _roles = const <String>[
-    'admin',
     'doctor',
     'receptionist',
     'inventoryManager',

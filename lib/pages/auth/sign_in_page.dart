@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:get/get.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:medicare/Providers/UserProvides.dart';
 import 'package:medicare/pages/auth/guest_login_page.dart';
@@ -47,6 +48,52 @@ class _SignInPageState extends ConsumerState<SignInPage> {
           _passwordController.text.trim(),
           _selectedRole,
         );
+  }
+
+  Future<void> _onForgotPassword() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Enter your email to reset the password.'),
+        ),
+      );
+      return;
+    }
+    if (!GetUtils.isEmail(email)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid email address.')),
+      );
+      return;
+    }
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Password reset link sent to $email.')),
+      );
+    } on FirebaseAuthException catch (e) {
+      final message = _mapResetError(e);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    } catch (_) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Something went wrong. Try again later.')),
+      );
+    }
+  }
+
+  String _mapResetError(FirebaseAuthException exception) {
+    switch (exception.code) {
+      case 'user-not-found':
+        return 'No user found for that email.';
+      case 'invalid-email':
+        return 'Enter a valid email address.';
+      case 'too-many-requests':
+        return 'Too many requests. Please try again in a moment.';
+      default:
+        return 'Unable to send reset email: ${exception.message ?? 'unknown error'}';
+    }
   }
 
   @override
@@ -163,6 +210,16 @@ class _SignInPageState extends ConsumerState<SignInPage> {
                             ),
                           ),
                           const SizedBox(height: 32),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton(
+                              onPressed: appState.isLoading
+                                  ? null
+                                  : _onForgotPassword,
+                              child: const Text('Forgot password?'),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton(
