@@ -8,6 +8,7 @@ import 'package:medicare/Providers/doctorProvider.dart' as doctor_provider;
 import 'package:medicare/Providers/patientPrivider.dart' as patient_provider;
 import 'package:medicare/services/appointmentService.dart';
 import 'package:medicare/theme/app_theme.dart';
+import 'package:medicare/widgets/selector_drawer.dart';
 
 class ReceptionistHomePage extends ConsumerStatefulWidget {
   const ReceptionistHomePage({super.key, required this.user});
@@ -25,6 +26,8 @@ class _ReceptionistHomePageState extends ConsumerState<ReceptionistHomePage> {
   String? _selectedPatientId;
   DateTime? _selectedDate;
   TimeOfDay? _selectedTime;
+  final _reasonController = TextEditingController();
+  late final VoidCallback _reasonListener;
   bool _isBooking = false;
   bool _isRegisteringPatient = false;
   int _drawerInitialIndex = 0;
@@ -40,19 +43,32 @@ class _ReceptionistHomePageState extends ConsumerState<ReceptionistHomePage> {
   @override
   void initState() {
     super.initState();
+    _reasonListener = () => setState(() {});
+    _reasonController.addListener(_reasonListener);
     WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
   }
 
   @override
   void dispose() {
+    _reasonController.removeListener(_reasonListener);
     _patientNameController.dispose();
     _patientEmailController.dispose();
     _patientPhoneController.dispose();
     _patientAddressController.dispose();
     _patientAgeController.dispose();
     _patientHistoryController.dispose();
+    _reasonController.dispose();
     super.dispose();
   }
+
+  bool get _hasDoctorSelection => (_selectedDoctorId ?? '').trim().isNotEmpty;
+
+  bool get _hasPatientSelection => (_selectedPatientId ?? '').trim().isNotEmpty;
+
+  bool get _hasRequiredSelections =>
+      _hasDoctorSelection && _hasPatientSelection;
+
+  String get _currentReason => _reasonController.text.trim();
 
   void _bootstrap() {
     final read = ref.read;
@@ -205,8 +221,11 @@ class _ReceptionistHomePageState extends ConsumerState<ReceptionistHomePage> {
   }
 
   Future<void> _bookAppointment() async {
-    if (_selectedDoctorId == null || _selectedPatientId == null) {
-      Get.snackbar('Incomplete data', 'Select doctor and patient');
+    if (!_hasDoctorSelection || !_hasPatientSelection) {
+      Get.snackbar(
+        'Incomplete selection',
+        'Select both a doctor and a patient before scheduling.',
+      );
       return;
     }
     final slot = _selectedDateTime;
@@ -219,30 +238,41 @@ class _ReceptionistHomePageState extends ConsumerState<ReceptionistHomePage> {
     final patientAppointments = ref.read(
       appointments.patientAppointmentProvider,
     );
-    if (_hasConflict(slot, doctorAppointments, patientAppointments)) {
+    final doctorConflict = _findConflict(slot, doctorAppointments);
+    final patientConflict = _findConflict(slot, patientAppointments);
+    if (doctorConflict != null || patientConflict != null) {
       Get.snackbar(
         'Slot unavailable',
-        'Choose a different time. The doctor or patient is already booked within an hour.',
+        _buildConflictMessage(doctorConflict, patientConflict),
       );
       return;
     }
 
+    final reasonText = _currentReason;
+    if (reasonText.isEmpty) {
+      Get.snackbar('Missing reason', 'Provide a short reason for the visit');
+      return;
+    }
+
+    final doctorId = _selectedDoctorId!.trim();
+    final patientId = _selectedPatientId!.trim();
+
     setState(() => _isBooking = true);
     final response = await AppointmentService.bookAppointment(
-      _selectedDoctorId!,
-      _selectedPatientId!,
+      doctorId,
+      patientId,
       slot,
-      'Scheduled via receptionist portal',
+      reasonText,
     );
     setState(() => _isBooking = false);
 
     if (response['status'] == 'success') {
       ref
           .read(appointments.doctorAppointmentProvider.notifier)
-          .setAppointmentsForDoctor(_selectedDoctorId!);
+          .setAppointmentsForDoctor(doctorId);
       ref
           .read(appointments.patientAppointmentProvider.notifier)
-          .setAppointmentsForPatient(_selectedPatientId!);
+          .setAppointmentsForPatient(patientId);
       ref
           .read(appointments.combinedAppointmentProvider.notifier)
           .refreshCurrentFilters();
@@ -255,6 +285,7 @@ class _ReceptionistHomePageState extends ConsumerState<ReceptionistHomePage> {
       setState(() {
         _selectedDate = null;
         _selectedTime = null;
+        _reasonController.clear();
       });
     } else {
       Get.snackbar(
@@ -272,6 +303,7 @@ class _ReceptionistHomePageState extends ConsumerState<ReceptionistHomePage> {
     setState(() {
       _selectedDate = null;
       _selectedTime = null;
+      _reasonController.clear();
     });
   }
 
@@ -310,25 +342,71 @@ class _ReceptionistHomePageState extends ConsumerState<ReceptionistHomePage> {
     }
   }
 
-  bool _hasConflict(
+  appointments.appointment? _findConflict(
     DateTime slot,
-    List<appointments.appointment> doctorAppointments,
-    List<appointments.appointment> patientAppointments,
+    List<appointments.appointment> list,
   ) {
-    bool conflictWith(List<appointments.appointment> list) {
-      for (final appt in list) {
-        final dateTime = appt.dateTime;
-        if (dateTime == null) continue;
-        final difference = dateTime.difference(slot).inMinutes.abs();
-        if (difference < 60) {
-          return true;
-        }
+    for (final appt in list) {
+      final dateTime = appt.dateTime;
+      if (dateTime == null) {
+        continue;
       }
-      return false;
+      if (_isSameHour(dateTime, slot)) {
+        return appt;
+      }
+    }
+    return null;
+  }
+
+  bool _isSameHour(DateTime a, DateTime b) {
+    return a.year == b.year &&
+        a.month == b.month &&
+        a.day == b.day &&
+        a.hour == b.hour;
+  }
+
+  String _formatSlot(DateTime dateTime) {
+    final timeOfDay = TimeOfDay.fromDateTime(dateTime).format(context);
+    return '${dateTime.day}/${dateTime.month}/${dateTime.year} · $timeOfDay';
+  }
+
+  String _buildConflictMessage(
+    appointments.appointment? doctorConflict,
+    appointments.appointment? patientConflict,
+  ) {
+    final messages = <String>[];
+
+    if (doctorConflict != null) {
+      final bookingTime = doctorConflict.dateTime;
+      if (bookingTime != null) {
+        messages.add(
+          'Doctor already has an appointment at ${_formatSlot(bookingTime)}.',
+        );
+      } else {
+        messages.add('Doctor already has an appointment during this hour.');
+      }
     }
 
-    return conflictWith(doctorAppointments) ||
-        conflictWith(patientAppointments);
+    final sameAppointment =
+        doctorConflict?.appointmentId != null &&
+        doctorConflict?.appointmentId == patientConflict?.appointmentId;
+
+    if (patientConflict != null && !sameAppointment) {
+      final bookingTime = patientConflict.dateTime;
+      if (bookingTime != null) {
+        messages.add(
+          'Patient already has an appointment at ${_formatSlot(bookingTime)}.',
+        );
+      } else {
+        messages.add('Patient already has an appointment during this hour.');
+      }
+    }
+
+    if (messages.isEmpty) {
+      return 'Doctor or patient already has an appointment during this hour.';
+    }
+
+    return messages.join(' ');
   }
 
   doctor_provider.doctor? _selectedDoctorModel(
@@ -445,12 +523,37 @@ class _ReceptionistHomePageState extends ConsumerState<ReceptionistHomePage> {
     final combinedAppointments = ref.watch(
       appointments.combinedAppointmentProvider,
     );
+    final doctorAppointments = ref.watch(
+      appointments.doctorAppointmentProvider,
+    );
+    final patientAppointments = ref.watch(
+      appointments.patientAppointmentProvider,
+    );
     final selectedDoctorLabel = _selectedDoctorLabel(doctors);
     final selectedPatientLabel = _selectedPatientLabel(patients);
+    final hasSelections = _hasRequiredSelections;
+    final selectedSlot = _selectedDateTime;
+    final doctorConflict = hasSelections && selectedSlot != null
+        ? _findConflict(selectedSlot, doctorAppointments)
+        : null;
+    final patientConflict = hasSelections && selectedSlot != null
+        ? _findConflict(selectedSlot, patientAppointments)
+        : null;
+    final hasConflict = doctorConflict != null || patientConflict != null;
+    final scheduleFieldsEnabled = hasSelections && !_isBooking;
+    final canBook =
+        !_isBooking &&
+        hasSelections &&
+        selectedSlot != null &&
+        _currentReason.isNotEmpty &&
+        !hasConflict;
+    final conflictMessage = hasConflict
+        ? _buildConflictMessage(doctorConflict, patientConflict)
+        : null;
 
     return Scaffold(
       key: _scaffoldKey,
-      endDrawer: _SelectorDrawer(
+      endDrawer: SelectorDrawer(
         initialIndex: _drawerInitialIndex,
         doctors: doctors,
         patients: patients,
@@ -662,7 +765,8 @@ class _ReceptionistHomePageState extends ConsumerState<ReceptionistHomePage> {
                         Expanded(
                           child: TextFormField(
                             readOnly: true,
-                            onTap: _isBooking ? null : _pickDate,
+                            enabled: scheduleFieldsEnabled,
+                            onTap: scheduleFieldsEnabled ? _pickDate : null,
                             decoration: InputDecoration(
                               labelText: 'Date',
                               hintText: _selectedDate == null
@@ -675,7 +779,8 @@ class _ReceptionistHomePageState extends ConsumerState<ReceptionistHomePage> {
                         Expanded(
                           child: TextFormField(
                             readOnly: true,
-                            onTap: _isBooking ? null : _pickTime,
+                            enabled: scheduleFieldsEnabled,
+                            onTap: scheduleFieldsEnabled ? _pickTime : null,
                             decoration: InputDecoration(
                               labelText: 'Time',
                               hintText: _selectedTime == null
@@ -685,6 +790,38 @@ class _ReceptionistHomePageState extends ConsumerState<ReceptionistHomePage> {
                           ),
                         ),
                       ],
+                    ),
+                    if (!hasSelections)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          'Select a doctor and patient to enable date and time options.',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: AppColors.textSecondary),
+                        ),
+                      )
+                    else if (conflictMessage != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          conflictMessage,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: Colors.redAccent),
+                        ),
+                      ),
+                    const SizedBox(height: 24),
+                    TextFormField(
+                      controller: _reasonController,
+                      enabled: scheduleFieldsEnabled,
+                      maxLines: 2,
+                      minLines: 1,
+                      decoration: InputDecoration(
+                        labelText: 'Reason for visit',
+                        hintText: 'Brief description (required)',
+                        helperText: hasSelections
+                            ? null
+                            : 'Select doctor and patient first.',
+                      ),
                     ),
                     const SizedBox(height: 24),
                     Align(
@@ -701,7 +838,7 @@ class _ReceptionistHomePageState extends ConsumerState<ReceptionistHomePage> {
                             label: const Text('Clear selection'),
                           ),
                           ElevatedButton(
-                            onPressed: _isBooking ? null : _bookAppointment,
+                            onPressed: canBook ? _bookAppointment : null,
                             child: Padding(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 24,
@@ -843,7 +980,18 @@ class _AppointmentRow extends StatelessWidget {
       child: ListTile(
         leading: const Icon(Icons.event, color: AppColors.secondary),
         title: Text(formatted),
-        subtitle: Text('Doctor: $doctorName · Patient: $patientName'),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Doctor: $doctorName · Patient: $patientName'),
+            Text(
+              appointment.reason?.isNotEmpty == true
+                  ? 'Reason: ${appointment.reason}'
+                  : 'Reason: Not provided',
+            ),
+          ],
+        ),
         trailing: IconButton(
           icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
           onPressed: onDelete,
@@ -884,396 +1032,6 @@ class _EmptyState extends StatelessWidget {
         style: Theme.of(
           context,
         ).textTheme.bodyLarge?.copyWith(color: AppColors.textSecondary),
-      ),
-    );
-  }
-}
-
-class _SelectorDrawer extends StatefulWidget {
-  const _SelectorDrawer({
-    required this.initialIndex,
-    required this.doctors,
-    required this.patients,
-    required this.onDoctorSelect,
-    required this.onPatientSelect,
-    required this.selectedDoctorId,
-    required this.selectedPatientId,
-  });
-
-  final int initialIndex;
-  final List<doctor_provider.doctor> doctors;
-  final List<patient_provider.patient> patients;
-  final void Function(String?) onDoctorSelect;
-  final void Function(String?) onPatientSelect;
-  final String? selectedDoctorId;
-  final String? selectedPatientId;
-
-  @override
-  State<_SelectorDrawer> createState() => _SelectorDrawerState();
-}
-
-class _SelectorDrawerState extends State<_SelectorDrawer>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tabController;
-  final TextEditingController _searchController = TextEditingController();
-  String _searchQuery = '';
-
-  @override
-  void initState() {
-    super.initState();
-    final initialTab = widget.initialIndex.clamp(0, 1).toInt();
-    _tabController = TabController(
-      length: 2,
-      vsync: this,
-      initialIndex: initialTab,
-    );
-    _tabController.addListener(() {
-      if (!_tabController.indexIsChanging && mounted) {
-        setState(() {
-          _searchQuery = '';
-          _searchController.clear();
-        });
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  List<doctor_provider.doctor> get _filteredDoctors {
-    final query = _searchQuery.trim().toLowerCase();
-    if (query.isEmpty) {
-      return widget.doctors;
-    }
-    return widget.doctors.where((doc) {
-      final name = (doc.name ?? '').toLowerCase();
-      final email = (doc.email ?? '').toLowerCase();
-      final speciality = (doc.speciality ?? '').toLowerCase();
-      return name.contains(query) ||
-          email.contains(query) ||
-          speciality.contains(query);
-    }).toList();
-  }
-
-  List<patient_provider.patient> get _filteredPatients {
-    final query = _searchQuery.trim().toLowerCase();
-    if (query.isEmpty) {
-      return widget.patients;
-    }
-    return widget.patients.where((patient) {
-      final name = (patient.name ?? '').toLowerCase();
-      final email = (patient.email ?? '').toLowerCase();
-      return name.contains(query) || email.contains(query);
-    }).toList();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final double screenWidth = MediaQuery.of(context).size.width;
-    final double drawerWidth = screenWidth < 420
-        ? screenWidth * 0.9
-        : screenWidth > 980
-        ? 520
-        : screenWidth * 0.55;
-    final placeholder = _tabController.index == 0
-        ? 'Search doctors by name'
-        : 'Search patients by name';
-    final trimmedQuery = _searchQuery.trim();
-
-    return Drawer(
-      width: drawerWidth,
-      child: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.people_alt_rounded,
-                    color: AppColors.secondary,
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Text(
-                      'Browse roster',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-              child: TextField(
-                controller: _searchController,
-                onChanged: (value) => setState(() => _searchQuery = value),
-                decoration: InputDecoration(
-                  prefixIcon: const Icon(Icons.search),
-                  hintText: placeholder,
-                  suffixIcon: trimmedQuery.isEmpty
-                      ? null
-                      : IconButton(
-                          tooltip: 'Clear search',
-                          icon: const Icon(Icons.close),
-                          onPressed: () => setState(() {
-                            _searchQuery = '';
-                            _searchController.clear();
-                          }),
-                        ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  isDense: true,
-                ),
-              ),
-            ),
-            TabBar(
-              controller: _tabController,
-              labelColor: theme.colorScheme.primary,
-              indicatorColor: theme.colorScheme.primary,
-              unselectedLabelColor: AppColors.textSecondary,
-              tabs: const [
-                Tab(text: 'Doctors'),
-                Tab(text: 'Patients'),
-              ],
-            ),
-            Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  _DrawerListView(
-                    emptyLabel: trimmedQuery.isEmpty
-                        ? 'No doctors found.'
-                        : 'No doctors match "$trimmedQuery".',
-                    children: _filteredDoctors
-                        .map(
-                          (doc) => _DoctorCard(
-                            doctor: doc,
-                            onSelect: () => widget.onDoctorSelect(doc.uid),
-                            isSelected: widget.selectedDoctorId == doc.uid,
-                          ),
-                        )
-                        .toList(),
-                  ),
-                  _DrawerListView(
-                    emptyLabel: trimmedQuery.isEmpty
-                        ? 'No patients found.'
-                        : 'No patients match "$trimmedQuery".',
-                    children: _filteredPatients
-                        .map(
-                          (patient) => _PatientCard(
-                            patient: patient,
-                            onSelect: () => widget.onPatientSelect(patient.uid),
-                            isSelected: widget.selectedPatientId == patient.uid,
-                          ),
-                        )
-                        .toList(),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _DrawerListView extends StatelessWidget {
-  const _DrawerListView({required this.children, required this.emptyLabel});
-
-  final List<Widget> children;
-  final String emptyLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    if (children.isEmpty) {
-      return Center(
-        child: Text(
-          emptyLabel,
-          style: Theme.of(
-            context,
-          ).textTheme.bodyMedium?.copyWith(color: AppColors.textSecondary),
-        ),
-      );
-    }
-    return ListView.separated(
-      padding: const EdgeInsets.all(16),
-      itemBuilder: (context, index) => children[index],
-      separatorBuilder: (context, index) => const SizedBox(height: 12),
-      itemCount: children.length,
-    );
-  }
-}
-
-class _DoctorCard extends StatelessWidget {
-  const _DoctorCard({
-    required this.doctor,
-    required this.onSelect,
-    required this.isSelected,
-  });
-
-  final doctor_provider.doctor doctor;
-  final VoidCallback onSelect;
-  final bool isSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final speciality = doctor.speciality?.isNotEmpty == true
-        ? doctor.speciality!
-        : 'Speciality not set';
-    return Card(
-      color: isSelected ? AppColors.secondary.withOpacity(0.08) : null,
-      child: ExpansionTile(
-        leading: const CircleAvatar(
-          backgroundColor: AppColors.secondary,
-          child: Icon(Icons.medical_services_outlined, color: Colors.white),
-        ),
-        title: Text(doctor.name ?? doctor.email ?? 'Unnamed doctor'),
-        subtitle: Text(speciality),
-        childrenPadding: const EdgeInsets.only(bottom: 16),
-        children: [
-          _DrawerInfoRow(label: 'Email', value: doctor.email),
-          _DrawerInfoRow(label: 'Speciality', value: doctor.speciality),
-          _DrawerInfoRow(label: 'Joined', value: doctor.createdAt),
-          if ((doctor.certifications ?? []).isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Certifications',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 4,
-                    children: doctor.certifications!
-                        .map(
-                          (cert) => Chip(
-                            label: Text(cert),
-                            backgroundColor: AppColors.secondary.withOpacity(
-                              0.1,
-                            ),
-                          ),
-                        )
-                        .toList(),
-                  ),
-                ],
-              ),
-            ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: ElevatedButton.icon(
-                onPressed: doctor.uid == null ? null : onSelect,
-                icon: Icon(
-                  isSelected ? Icons.check_circle : Icons.event_available,
-                ),
-                label: Text(isSelected ? 'Selected' : 'Select doctor'),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PatientCard extends StatelessWidget {
-  const _PatientCard({
-    required this.patient,
-    required this.onSelect,
-    required this.isSelected,
-  });
-
-  final patient_provider.patient patient;
-  final VoidCallback onSelect;
-  final bool isSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      color: isSelected ? AppColors.secondary.withOpacity(0.08) : null,
-      child: ExpansionTile(
-        leading: const CircleAvatar(
-          backgroundColor: AppColors.primary,
-          child: Icon(Icons.person_outline, color: Colors.white),
-        ),
-        title: Text(patient.name ?? patient.email ?? 'Unnamed patient'),
-        subtitle: Text(patient.email ?? 'Email not provided'),
-        childrenPadding: const EdgeInsets.only(bottom: 16),
-        children: [
-          _DrawerInfoRow(label: 'Email', value: patient.email),
-          _DrawerInfoRow(label: 'Phone', value: patient.phone),
-          _DrawerInfoRow(label: 'Age', value: patient.age),
-          _DrawerInfoRow(label: 'Address', value: patient.address),
-          _DrawerInfoRow(label: 'Medical notes', value: patient.medicalHistory),
-          _DrawerInfoRow(label: 'Registered', value: patient.createdAt),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: ElevatedButton.icon(
-                onPressed: patient.uid == null ? null : onSelect,
-                icon: Icon(
-                  isSelected ? Icons.check_circle : Icons.event_available,
-                ),
-                label: Text(isSelected ? 'Selected' : 'Select patient'),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DrawerInfoRow extends StatelessWidget {
-  const _DrawerInfoRow({required this.label, this.value});
-
-  final String label;
-  final String? value;
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    final displayValue = (value != null && value!.trim().isNotEmpty)
-        ? value!.trim()
-        : 'Not provided';
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            flex: 2,
-            child: Text(
-              label,
-              style: textTheme.bodySmall?.copyWith(
-                color: AppColors.textSecondary,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            flex: 5,
-            child: Text(displayValue, style: textTheme.bodyMedium),
-          ),
-        ],
       ),
     );
   }

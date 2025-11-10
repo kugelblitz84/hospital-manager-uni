@@ -51,4 +51,14 @@ class LabService {
       return {"status": "error", "message": e.toString()};
     }
   }
+
+  static Future<dynamic> deleteLabTest(String testId) async {
+    try {
+      final firestore = FirebaseFirestore.instance;
+      await firestore.collection('lab_tests').doc(testId).delete();
+      return {"status": "success"};
+    } catch (e) {
+      return {"status": "error", "message": e.toString()};
+    }
+  }
 }

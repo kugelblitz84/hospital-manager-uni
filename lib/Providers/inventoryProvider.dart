@@ -17,12 +17,18 @@ class inventoryItem {
   String? itemDescription;
   int? quantity;
   double? price;
+  double? unitPrice;
+  String? unitType;
+  String? itemType;
   inventoryItem({
     this.itemId,
     this.itemName,
     this.itemDescription,
     this.quantity,
     this.price,
+    this.unitPrice,
+    this.unitType,
+    this.itemType,
   });
 }
 
@@ -32,7 +38,7 @@ class InventoryNotifier extends Notifier<List<inventoryItem>> {
     return [];
   }
 
-  void setInventoryItems() async {
+  Future<void> setInventoryItems() async {
     final res = await InventoryServices.getInventoryItems();
     if (res['status'] != 'success') {
       Get.snackbar(
@@ -43,31 +49,57 @@ class InventoryNotifier extends Notifier<List<inventoryItem>> {
       return;
     }
     List<inventoryItem> items = [];
-    for (var doc in res['items']) {
+    for (final dynamic raw in res['items'] ?? []) {
+      if (raw is! Map<String, dynamic>) {
+        continue;
+      }
+      final data = Map<String, dynamic>.from(raw);
+      final quantityRaw = data['quantity'];
+      final priceRaw = data['price'];
+      final unitPriceRaw = data['unitPrice'];
+      final unitTypeRaw = data['unitType'] ?? data['unit_type'];
+      final itemTypeRaw = data['itemType'] ?? data['item_type'];
       items.add(
         inventoryItem(
-          itemId: doc['itemId'],
-          itemName: doc['itemName'],
-          itemDescription: doc['itemDescription'],
-          quantity: doc['quantity'],
-          price: doc['price'],
+          itemId: data['itemId'] as String?,
+          itemName: data['name'] as String? ?? data['itemName'] as String?,
+          itemDescription:
+              data['description'] as String? ??
+              data['itemDescription'] as String?,
+          quantity: quantityRaw is int
+              ? quantityRaw
+              : int.tryParse(quantityRaw?.toString() ?? ''),
+          price: priceRaw is num
+              ? priceRaw.toDouble()
+              : double.tryParse(priceRaw?.toString() ?? ''),
+          unitPrice: unitPriceRaw is num
+              ? unitPriceRaw.toDouble()
+              : double.tryParse(unitPriceRaw?.toString() ?? ''),
+          unitType: unitTypeRaw?.toString(),
+          itemType: itemTypeRaw?.toString(),
         ),
       );
     }
     state = items;
   }
 
-  void addInventoryItem(
+  Future<bool> addInventoryItem(
     String name,
     String description,
     int quantity,
     double price,
+    double unitPrice,
+    String unitType,
+    String itemType,
   ) async {
     final res = await InventoryServices.addInventoryItem(
       name,
       description,
       quantity,
       price,
+      unitPrice,
+      unitType,
+      itemType,
     );
     if (res['status'] != 'success') {
       Get.snackbar(
@@ -75,12 +107,16 @@ class InventoryNotifier extends Notifier<List<inventoryItem>> {
         res['message'] ?? "Failed to add inventory item",
         backgroundColor: const Color.fromARGB(255, 255, 0, 0),
       );
-      return;
+      return false;
     }
-    setInventoryItems();
+    await setInventoryItems();
+    return true;
   }
 
-  void updateInventoryItem(String itemId, Map<String, dynamic> data) async {
+  Future<bool> updateInventoryItem(
+    String itemId,
+    Map<String, dynamic> data,
+  ) async {
     final res = await InventoryServices.updateInventoryItem(itemId, data);
     if (res['status'] != 'success') {
       Get.snackbar(
@@ -88,12 +124,13 @@ class InventoryNotifier extends Notifier<List<inventoryItem>> {
         res['message'] ?? "Failed to update inventory item",
         backgroundColor: const Color.fromARGB(255, 255, 0, 0),
       );
-      return;
+      return false;
     }
-    setInventoryItems();
+    await setInventoryItems();
+    return true;
   }
 
-  void deleteInventoryItem(String itemId) async {
+  Future<bool> deleteInventoryItem(String itemId) async {
     final res = await InventoryServices.deleteInventoryItem(itemId);
     if (res['status'] != 'success') {
       Get.snackbar(
@@ -101,9 +138,10 @@ class InventoryNotifier extends Notifier<List<inventoryItem>> {
         res['message'] ?? "Failed to delete inventory item",
         backgroundColor: const Color.fromARGB(255, 255, 0, 0),
       );
-      return;
+      return false;
     }
-    setInventoryItems();
+    await setInventoryItems();
+    return true;
   }
 }
 

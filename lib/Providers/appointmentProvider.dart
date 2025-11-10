@@ -143,7 +143,8 @@ class CombinedAppointmentNotifier extends Notifier<List<appointment>> {
       }
     }
 
-    if (currentPatient != null) {
+    if (currentPatient != null &&
+        (currentDoctor == null || doctorAppointments.isEmpty)) {
       final res = await AppointmentService.getAppointmentsForPatient(
         currentPatient,
       );
@@ -152,6 +153,14 @@ class CombinedAppointmentNotifier extends Notifier<List<appointment>> {
       } else {
         _showError(res['message']);
       }
+    } else if (currentPatient != null && currentDoctor != null) {
+      // Fetch for patient as well so list stays current even if doctor cache misses items.
+      final res = await AppointmentService.getAppointmentsForPatient(
+        currentPatient,
+      );
+      if (res['status'] == 'success') {
+        patientAppointments = _mapRawAppointments(res['appointments']);
+      }
     }
 
     if (currentDoctor != _doctorId || currentPatient != _patientId) {
@@ -159,19 +168,27 @@ class CombinedAppointmentNotifier extends Notifier<List<appointment>> {
     }
 
     List<appointment> result;
-    if (currentDoctor != null && currentPatient != null) {
-      final doctorMap = {
-        for (final appt in doctorAppointments) _mapKey(appt): appt,
-      };
-      result = [
-        for (final appt in patientAppointments)
-          if (doctorMap.containsKey(_mapKey(appt))) appt,
-      ];
-    } else if (currentDoctor != null) {
+    if (currentDoctor != null) {
       result = doctorAppointments;
+      if (currentPatient != null) {
+        result = result
+            .where((appt) => appt.patientId == currentPatient)
+            .toList();
+        if (result.isEmpty && patientAppointments.isNotEmpty) {
+          result = patientAppointments
+              .where((appt) => appt.doctorId == currentDoctor)
+              .toList();
+        }
+      }
     } else {
       result = patientAppointments;
     }
+
+    final seenKeys = <String>{};
+    result = [
+      for (final appt in result)
+        if (seenKeys.add(_mapKey(appt))) appt,
+    ];
 
     result.sort(
       (a, b) => (a.dateTime ?? DateTime.fromMillisecondsSinceEpoch(0))
@@ -185,18 +202,23 @@ class CombinedAppointmentNotifier extends Notifier<List<appointment>> {
     if (raw is! List) {
       return [];
     }
-    return raw.map((entry) {
-      final data = entry is Map<String, dynamic>
-          ? Map<String, dynamic>.from(entry)
-          : Map<String, dynamic>.from(entry as Map);
-      return appointment(
-        appointmentId: data['appointmentId']?.toString(),
-        doctorId: data['doctorId']?.toString(),
-        patientId: data['patientId']?.toString(),
-        dateTime: _parseAppointmentDate(data['dateTime']),
-        reason: data['reason']?.toString(),
+    final appointments = <appointment>[];
+    for (final entry in raw) {
+      if (entry is! Map) {
+        continue;
+      }
+      final data = Map<String, dynamic>.from(entry);
+      appointments.add(
+        appointment(
+          appointmentId: data['appointmentId']?.toString(),
+          doctorId: data['doctorId']?.toString(),
+          patientId: data['patientId']?.toString(),
+          dateTime: _parseAppointmentDate(data['dateTime']),
+          reason: data['reason']?.toString(),
+        ),
       );
-    }).toList();
+    }
+    return appointments;
   }
 
   String _mapKey(appointment appt) {

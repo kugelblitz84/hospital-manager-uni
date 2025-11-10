@@ -118,7 +118,7 @@ class LabTestsNotifier extends Notifier<List<labTest>> {
     state = tests;
   }
 
-  void setNewLabTest(
+  Future<bool> setNewLabTest(
     String patientId,
     String? doctorId,
     String name,
@@ -138,7 +138,7 @@ class LabTestsNotifier extends Notifier<List<labTest>> {
         res['message'] ?? "Failed to add lab test",
         backgroundColor: const Color.fromARGB(255, 255, 0, 0),
       );
-      return;
+      return false;
     }
     labTest newTest = labTest(
       testId: res['testId'],
@@ -150,6 +150,21 @@ class LabTestsNotifier extends Notifier<List<labTest>> {
     );
     // add the new test to the state list
     state = [...state, newTest];
+    return true;
+  }
+
+  Future<bool> deleteLabTest(String testId) async {
+    final res = await LabService.deleteLabTest(testId);
+    if (res['status'] != 'success') {
+      Get.snackbar(
+        "Error",
+        res['message'] ?? "Failed to delete lab test",
+        backgroundColor: const Color.fromARGB(255, 255, 0, 0),
+      );
+      return false;
+    }
+    state = state.where((test) => test.testId != testId).toList();
+    return true;
   }
 }
 

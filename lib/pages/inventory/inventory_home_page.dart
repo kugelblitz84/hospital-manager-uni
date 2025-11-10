@@ -33,13 +33,26 @@ class _InventoryHomePageState extends ConsumerState<InventoryHomePage> {
     await Future<void>.delayed(const Duration(milliseconds: 300));
   }
 
-  void _showAddItemDialog() {
-    Get.dialog(
-      _AddInventoryItemDialog(
-        onSubmit: (name, description, quantity, price) {
-          ref
+  Future<void> _showAddItemDialog() async {
+    await Get.dialog(
+      _InventoryItemDialog(
+        title: 'Add inventory item',
+        submitLabel: 'Save item',
+        successTitle: 'Inventory updated',
+        successMessage: 'Item added successfully',
+        onSubmit: (form) async {
+          final success = await ref
               .read(inventoryProvider.notifier)
-              .addInventoryItem(name, description, quantity, price);
+              .addInventoryItem(
+                form.name,
+                form.description,
+                form.quantity,
+                form.totalPrice,
+                form.unitPrice,
+                form.unitType,
+                form.itemType,
+              );
+          return success;
         },
       ),
     );
@@ -99,6 +112,76 @@ class _InventoryCard extends StatelessWidget {
   final inventoryItem item;
   final WidgetRef ref;
 
+  Future<void> _handleDelete(BuildContext context) async {
+    if (item.itemId == null) {
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete inventory item'),
+        content: Text(
+          'Are you sure you want to delete "${item.itemName ?? 'this item'}"? This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) {
+      return;
+    }
+
+    final success = await ref
+        .read(inventoryProvider.notifier)
+        .deleteInventoryItem(item.itemId!);
+    if (success) {
+      Get.snackbar(
+        'Inventory updated',
+        'Item removed successfully',
+        backgroundColor: AppColors.secondary,
+        colorText: Colors.white,
+      );
+    }
+  }
+
+  Future<void> _handleEdit(BuildContext context) async {
+    if (item.itemId == null) {
+      return;
+    }
+    await Get.dialog(
+      _InventoryItemDialog(
+        title: 'Edit inventory item',
+        submitLabel: 'Update item',
+        successTitle: 'Inventory updated',
+        successMessage: 'Item details saved successfully',
+        initialItem: item,
+        onSubmit: (form) async {
+          final success = await ref
+              .read(inventoryProvider.notifier)
+              .updateInventoryItem(item.itemId!, {
+                'name': form.name,
+                'description': form.description,
+                'quantity': form.quantity,
+                'price': form.totalPrice,
+                'unitPrice': form.unitPrice,
+                'unitType': form.unitType,
+                'itemType': form.itemType,
+              });
+          return success;
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -108,26 +191,35 @@ class _InventoryCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  item.itemName ?? 'Untitled item',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
+                Expanded(
+                  child: Text(
+                    item.itemName ?? 'Untitled item',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
-                IconButton(
-                  onPressed: () {
-                    if (item.itemId != null) {
-                      ref
-                          .read(inventoryProvider.notifier)
-                          .deleteInventoryItem(item.itemId!);
-                    }
-                  },
-                  icon: const Icon(
-                    Icons.delete_outline,
-                    color: Colors.redAccent,
-                  ),
+                Row(
+                  children: [
+                    IconButton(
+                      tooltip: 'Edit item',
+                      onPressed: item.itemId == null
+                          ? null
+                          : () => _handleEdit(context),
+                      icon: const Icon(Icons.edit_outlined),
+                    ),
+                    IconButton(
+                      tooltip: 'Delete item',
+                      onPressed: item.itemId == null
+                          ? null
+                          : () => _handleDelete(context),
+                      icon: const Icon(
+                        Icons.delete_outline,
+                        color: Colors.redAccent,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -136,6 +228,7 @@ class _InventoryCard extends StatelessWidget {
             const SizedBox(height: 12),
             Wrap(
               spacing: 18,
+              runSpacing: 12,
               children: [
                 _InfoPill(
                   icon: Icons.inventory_2_outlined,
@@ -144,10 +237,31 @@ class _InventoryCard extends StatelessWidget {
                 ),
                 _InfoPill(
                   icon: Icons.attach_money,
-                  label: 'Price',
+                  label: 'Total price',
                   value: item.price != null
                       ? item.price!.toStringAsFixed(2)
                       : 'Not set',
+                ),
+                _InfoPill(
+                  icon: Icons.payments_outlined,
+                  label: 'Unit price',
+                  value: item.unitPrice != null
+                      ? item.unitPrice!.toStringAsFixed(2)
+                      : 'Not set',
+                ),
+                _InfoPill(
+                  icon: Icons.straighten,
+                  label: 'Unit type',
+                  value: (item.unitType == null || item.unitType!.isEmpty)
+                      ? 'Not set'
+                      : item.unitType!,
+                ),
+                _InfoPill(
+                  icon: Icons.category_outlined,
+                  label: 'Item type',
+                  value: (item.itemType == null || item.itemType!.isEmpty)
+                      ? 'Not set'
+                      : item.itemType!,
                 ),
               ],
             ),
@@ -158,30 +272,79 @@ class _InventoryCard extends StatelessWidget {
   }
 }
 
-class _AddInventoryItemDialog extends StatefulWidget {
-  const _AddInventoryItemDialog({required this.onSubmit});
+class _InventoryFormData {
+  const _InventoryFormData({
+    required this.name,
+    required this.description,
+    required this.quantity,
+    required this.totalPrice,
+    required this.unitPrice,
+    required this.unitType,
+    required this.itemType,
+  });
 
-  final void Function(
-    String name,
-    String description,
-    int quantity,
-    double price,
-  )
-  onSubmit;
-
-  @override
-  State<_AddInventoryItemDialog> createState() =>
-      _AddInventoryItemDialogState();
+  final String name;
+  final String description;
+  final int quantity;
+  final double totalPrice;
+  final double unitPrice;
+  final String unitType;
+  final String itemType;
 }
 
-class _AddInventoryItemDialogState extends State<_AddInventoryItemDialog> {
+class _InventoryItemDialog extends StatefulWidget {
+  const _InventoryItemDialog({
+    required this.title,
+    required this.submitLabel,
+    required this.successTitle,
+    required this.successMessage,
+    required this.onSubmit,
+    this.initialItem,
+  });
+
+  final String title;
+  final String submitLabel;
+  final String successTitle;
+  final String successMessage;
+  final inventoryItem? initialItem;
+  final Future<bool> Function(_InventoryFormData form) onSubmit;
+
+  @override
+  State<_InventoryItemDialog> createState() => _InventoryItemDialogState();
+}
+
+class _InventoryItemDialogState extends State<_InventoryItemDialog> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _quantityController = TextEditingController();
   final _priceController = TextEditingController();
+  final _unitPriceController = TextEditingController();
+  final _unitTypeController = TextEditingController();
+  final _itemTypeController = TextEditingController();
 
   bool _isSubmitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initialItem;
+    if (initial != null) {
+      _nameController.text = initial.itemName ?? '';
+      _descriptionController.text = initial.itemDescription ?? '';
+      if (initial.quantity != null) {
+        _quantityController.text = initial.quantity!.toString();
+      }
+      _priceController.text = initial.price != null
+          ? initial.price!.toStringAsFixed(2)
+          : '';
+      _unitPriceController.text = initial.unitPrice != null
+          ? initial.unitPrice!.toStringAsFixed(2)
+          : '';
+      _unitTypeController.text = initial.unitType ?? '';
+      _itemTypeController.text = initial.itemType ?? '';
+    }
+  }
 
   @override
   void dispose() {
@@ -189,28 +352,46 @@ class _AddInventoryItemDialogState extends State<_AddInventoryItemDialog> {
     _descriptionController.dispose();
     _quantityController.dispose();
     _priceController.dispose();
+    _unitPriceController.dispose();
+    _unitTypeController.dispose();
+    _itemTypeController.dispose();
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) {
       return;
     }
+    final quantity = int.parse(_quantityController.text.trim());
+    final totalPrice = double.parse(_priceController.text.trim());
+    final unitPrice = double.parse(_unitPriceController.text.trim());
+    final form = _InventoryFormData(
+      name: _nameController.text.trim(),
+      description: _descriptionController.text.trim(),
+      quantity: quantity,
+      totalPrice: totalPrice,
+      unitPrice: unitPrice,
+      unitType: _unitTypeController.text.trim(),
+      itemType: _itemTypeController.text.trim(),
+    );
     setState(() => _isSubmitting = true);
-    widget.onSubmit(
-      _nameController.text.trim(),
-      _descriptionController.text.trim(),
-      int.parse(_quantityController.text.trim()),
-      double.parse(_priceController.text.trim()),
-    );
-    setState(() => _isSubmitting = false);
-    Get.back();
-    Get.snackbar(
-      'Inventory updated',
-      'Item added successfully',
-      backgroundColor: AppColors.secondary,
-      colorText: Colors.white,
-    );
+    final success = await widget.onSubmit(form);
+    if (!mounted) {
+      return;
+    }
+    if (success) {
+      setState(() => _isSubmitting = false);
+      FocusScope.of(context).unfocus();
+      Get.back();
+      Get.snackbar(
+        widget.successTitle,
+        widget.successMessage,
+        backgroundColor: AppColors.secondary,
+        colorText: Colors.white,
+      );
+    } else {
+      setState(() => _isSubmitting = false);
+    }
   }
 
   @override
@@ -232,7 +413,7 @@ class _AddInventoryItemDialogState extends State<_AddInventoryItemDialog> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Add inventory item',
+                    widget.title,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
@@ -274,14 +455,55 @@ class _AddInventoryItemDialogState extends State<_AddInventoryItemDialog> {
               const SizedBox(height: 16),
               TextFormField(
                 controller: _priceController,
-                decoration: const InputDecoration(labelText: 'Price'),
-                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Total price'),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
-                    return 'Price is required';
+                    return 'Total price is required';
                   }
                   if (double.tryParse(value.trim()) == null) {
                     return 'Enter a valid amount';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _unitPriceController,
+                decoration: const InputDecoration(labelText: 'Unit price'),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Unit price is required';
+                  }
+                  if (double.tryParse(value.trim()) == null) {
+                    return 'Enter a valid amount';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _unitTypeController,
+                decoration: const InputDecoration(labelText: 'Unit type'),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Unit type is required';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _itemTypeController,
+                decoration: const InputDecoration(labelText: 'Item type'),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Item type is required';
                   }
                   return null;
                 },
@@ -293,7 +515,9 @@ class _AddInventoryItemDialogState extends State<_AddInventoryItemDialog> {
                   onPressed: _isSubmitting ? null : _submit,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: Text(_isSubmitting ? 'Saving...' : 'Save item'),
+                    child: Text(
+                      _isSubmitting ? 'Saving...' : widget.submitLabel,
+                    ),
                   ),
                 ),
               ),

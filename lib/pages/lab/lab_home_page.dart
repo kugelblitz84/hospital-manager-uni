@@ -7,6 +7,7 @@ import 'package:medicare/Providers/doctorProvider.dart' as doctor_provider;
 import 'package:medicare/Providers/labProvider.dart' as lab_provider;
 import 'package:medicare/Providers/patientPrivider.dart' as patient_provider;
 import 'package:medicare/theme/app_theme.dart';
+import 'package:medicare/widgets/selector_drawer.dart';
 
 class LabHomePage extends ConsumerStatefulWidget {
   const LabHomePage({super.key, required this.user});
@@ -39,17 +40,18 @@ class _LabHomePageState extends ConsumerState<LabHomePage> {
     await ref.read(appStateProvider.notifier).signOutUser();
   }
 
-  void _showCreateDialog() {
+  Future<void> _startCreateLabTest() async {
     final patients = ref.read(patient_provider.patientListProvider);
     final doctors = ref.read(doctor_provider.doctorListProvider);
-    Get.dialog(
-      _AddLabTestDialog(
+    await Get.to(
+      () => _LabTestFormPage(
         patients: patients,
         doctors: doctors,
-        onSubmit: (patientId, doctorId, name, description, price) {
-          ref
+        onSubmit: (patientId, doctorId, name, description, price) async {
+          final success = await ref
               .read(lab_provider.labTestsProvider.notifier)
               .setNewLabTest(patientId, doctorId, name, description, price);
+          return success;
         },
       ),
     );
@@ -74,7 +76,7 @@ class _LabHomePageState extends ConsumerState<LabHomePage> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showCreateDialog,
+        onPressed: _startCreateLabTest,
         backgroundColor: AppColors.secondary,
         icon: const Icon(Icons.add_chart_outlined),
         label: const Text('New test'),
@@ -134,11 +136,65 @@ class _LabTestCard extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              labTest.testName ?? 'Untitled test',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    labTest.testName ?? 'Untitled test',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Delete test',
+                  onPressed: labTest.testId == null
+                      ? null
+                      : () async {
+                          final confirmed = await showDialog<bool>(
+                            context: context,
+                            builder: (dialogContext) => AlertDialog(
+                              title: const Text('Delete lab test'),
+                              content: Text(
+                                'Delete "${labTest.testName ?? 'this test'}"? This cannot be undone.',
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () =>
+                                      Navigator.of(dialogContext).pop(false),
+                                  child: const Text('Cancel'),
+                                ),
+                                TextButton(
+                                  onPressed: () =>
+                                      Navigator.of(dialogContext).pop(true),
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: Colors.redAccent,
+                                  ),
+                                  child: const Text('Delete'),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (confirmed == true) {
+                            final success = await ref
+                                .read(lab_provider.labTestsProvider.notifier)
+                                .deleteLabTest(labTest.testId!);
+                            if (success) {
+                              Get.snackbar(
+                                'Lab test removed',
+                                'The test has been deleted.',
+                                backgroundColor: AppColors.secondary,
+                                colorText: Colors.white,
+                              );
+                            }
+                          }
+                        },
+                  icon: const Icon(
+                    Icons.delete_outline,
+                    color: Colors.redAccent,
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 8),
             Text(labTest.testDescription ?? 'No description provided'),
@@ -173,8 +229,8 @@ class _LabTestCard extends ConsumerWidget {
   }
 }
 
-class _AddLabTestDialog extends StatefulWidget {
-  const _AddLabTestDialog({
+class _LabTestFormPage extends StatefulWidget {
+  const _LabTestFormPage({
     required this.patients,
     required this.doctors,
     required this.onSubmit,
@@ -182,7 +238,7 @@ class _AddLabTestDialog extends StatefulWidget {
 
   final List<patient_provider.patient> patients;
   final List<doctor_provider.doctor> doctors;
-  final void Function(
+  final Future<bool> Function(
     String patientId,
     String? doctorId,
     String name,
@@ -192,16 +248,18 @@ class _AddLabTestDialog extends StatefulWidget {
   onSubmit;
 
   @override
-  State<_AddLabTestDialog> createState() => _AddLabTestDialogState();
+  State<_LabTestFormPage> createState() => _LabTestFormPageState();
 }
 
-class _AddLabTestDialogState extends State<_AddLabTestDialog> {
+class _LabTestFormPageState extends State<_LabTestFormPage> {
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
   final _formKey = GlobalKey<FormState>();
-  String? _selectedPatient;
-  String? _selectedDoctor;
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _priceController = TextEditingController();
+  String? _selectedPatientId;
+  String? _selectedDoctorId;
+  int _drawerInitialIndex = 0;
   bool _isSubmitting = false;
 
   @override
@@ -212,143 +270,263 @@ class _AddLabTestDialogState extends State<_AddLabTestDialog> {
     super.dispose();
   }
 
-  void _submit() {
-    if (!_formKey.currentState!.validate()) {
+  void _openSelectorDrawer(int index) {
+    setState(() => _drawerInitialIndex = index);
+    _scaffoldKey.currentState?.openEndDrawer();
+  }
+
+  void _onPatientSelect(String? value) {
+    if (value == null || value.isEmpty) {
       return;
     }
-    if (_selectedPatient == null) {
+    setState(() => _selectedPatientId = value);
+    Navigator.of(context).maybePop();
+  }
+
+  void _onDoctorSelect(String? value) {
+    if (value == null || value.isEmpty) {
+      return;
+    }
+    setState(() => _selectedDoctorId = value);
+    Navigator.of(context).maybePop();
+  }
+
+  patient_provider.patient? _selectedPatient() {
+    if (_selectedPatientId == null) {
+      return null;
+    }
+    for (final patient in widget.patients) {
+      if (patient.uid == _selectedPatientId) {
+        return patient;
+      }
+    }
+    return null;
+  }
+
+  doctor_provider.doctor? _selectedDoctor() {
+    if (_selectedDoctorId == null) {
+      return null;
+    }
+    for (final doctor in widget.doctors) {
+      if (doctor.uid == _selectedDoctorId) {
+        return doctor;
+      }
+    }
+    return null;
+  }
+
+  String? _displayIdentity({String? name, String? email, String? fallback}) {
+    final trimmedName = name?.trim();
+    if (trimmedName != null && trimmedName.isNotEmpty) {
+      return trimmedName;
+    }
+    final trimmedEmail = email?.trim();
+    if (trimmedEmail != null && trimmedEmail.isNotEmpty) {
+      return trimmedEmail;
+    }
+    final trimmedFallback = fallback?.trim();
+    if (trimmedFallback != null && trimmedFallback.isNotEmpty) {
+      return trimmedFallback;
+    }
+    return null;
+  }
+
+  String? get _patientLabel {
+    final patient = _selectedPatient();
+    return _displayIdentity(
+      name: patient?.name,
+      email: patient?.email,
+      fallback: patient?.uid,
+    );
+  }
+
+  String? get _doctorLabel {
+    final doctor = _selectedDoctor();
+    return _displayIdentity(
+      name: doctor?.name,
+      email: doctor?.email,
+      fallback: doctor?.uid,
+    );
+  }
+
+  Widget _buildSelectorField({
+    required String fieldKey,
+    required String label,
+    required String hint,
+    required String browseTooltip,
+    required String clearTooltip,
+    required String? value,
+    required VoidCallback onBrowse,
+    required VoidCallback? onClear,
+    required VoidCallback onTap,
+  }) {
+    final displayValue = value ?? '';
+    return Row(
+      children: [
+        Expanded(
+          child: TextFormField(
+            key: ValueKey('$fieldKey-${value ?? 'none'}'),
+            readOnly: true,
+            enableInteractiveSelection: false,
+            decoration: InputDecoration(
+              labelText: label,
+              hintText: hint,
+              suffixIcon: value == null
+                  ? null
+                  : IconButton(
+                      tooltip: clearTooltip,
+                      icon: const Icon(Icons.clear),
+                      onPressed: _isSubmitting ? null : onClear,
+                    ),
+            ),
+            initialValue: displayValue,
+            onTap: _isSubmitting ? null : onTap,
+          ),
+        ),
+        const SizedBox(width: 8),
+        IconButton(
+          tooltip: browseTooltip,
+          onPressed: _isSubmitting ? null : onBrowse,
+          icon: const Icon(Icons.menu_open),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _submit() async {
+    if (_selectedPatientId == null) {
       Get.snackbar('Validation', 'Select a patient for this test');
       return;
     }
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+    final price = double.parse(_priceController.text.trim());
     setState(() => _isSubmitting = true);
-    widget.onSubmit(
-      _selectedPatient!,
-      _selectedDoctor,
+    final success = await widget.onSubmit(
+      _selectedPatientId!,
+      _selectedDoctorId,
       _nameController.text.trim(),
       _descriptionController.text.trim(),
-      double.parse(_priceController.text.trim()),
+      price,
     );
-    setState(() => _isSubmitting = false);
-    Get.back();
-    Get.snackbar(
-      'Lab test created',
-      'Test assigned successfully',
-      backgroundColor: AppColors.secondary,
-      colorText: Colors.white,
-    );
+    if (!mounted) {
+      return;
+    }
+    if (success) {
+      setState(() => _isSubmitting = false);
+      FocusScope.of(context).unfocus();
+      Get.back();
+      Get.snackbar(
+        'Lab test created',
+        'Test assigned successfully',
+        backgroundColor: AppColors.secondary,
+        colorText: Colors.white,
+      );
+    } else {
+      setState(() => _isSubmitting = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      insetPadding: EdgeInsets.symmetric(
-        horizontal: Get.width * 0.22,
-        vertical: Get.height * 0.18,
+    return Scaffold(
+      key: _scaffoldKey,
+      endDrawer: SelectorDrawer(
+        initialIndex: _drawerInitialIndex,
+        doctors: widget.doctors,
+        patients: widget.patients,
+        onDoctorSelect: _onDoctorSelect,
+        onPatientSelect: _onPatientSelect,
+        selectedDoctorId: _selectedDoctorId,
+        selectedPatientId: _selectedPatientId,
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: _isSubmitting ? null : () => Get.back(),
+        ),
+        title: const Text('Create lab test'),
+      ),
+      body: SingleChildScrollView(
+        padding: EdgeInsets.symmetric(
+          horizontal: Get.width * 0.08,
+          vertical: Get.height * 0.04,
+        ),
         child: Form(
           key: _formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Create lab test',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: _isSubmitting ? null : Get.back,
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildSelectorField(
+                fieldKey: 'patient',
+                label: 'Patient',
+                hint: 'Select from roster',
+                browseTooltip: 'Browse patients',
+                clearTooltip: 'Clear patient',
+                value: _patientLabel,
+                onBrowse: () => _openSelectorDrawer(1),
+                onClear: () => setState(() => _selectedPatientId = null),
+                onTap: () => _openSelectorDrawer(1),
+              ),
+              const SizedBox(height: 20),
+              _buildSelectorField(
+                fieldKey: 'doctor',
+                label: 'Doctor (optional)',
+                hint: 'Select from roster',
+                browseTooltip: 'Browse doctors',
+                clearTooltip: 'Clear doctor',
+                value: _doctorLabel,
+                onBrowse: () => _openSelectorDrawer(0),
+                onClear: () => setState(() => _selectedDoctorId = null),
+                onTap: () => _openSelectorDrawer(0),
+              ),
+              const SizedBox(height: 24),
+              TextFormField(
+                controller: _nameController,
+                decoration: const InputDecoration(labelText: 'Test name'),
+                enabled: !_isSubmitting,
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? 'Name is required'
+                    : null,
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _descriptionController,
+                decoration: const InputDecoration(labelText: 'Description'),
+                enabled: !_isSubmitting,
+                maxLines: 3,
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _priceController,
+                decoration: const InputDecoration(labelText: 'Price'),
+                enabled: !_isSubmitting,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
                 ),
-                const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  value: _selectedPatient,
-                  decoration: const InputDecoration(labelText: 'Patient'),
-                  items: widget.patients
-                      .map(
-                        (patient_provider.patient p) => DropdownMenuItem(
-                          value: p.uid,
-                          child: Text(p.name ?? p.email ?? p.uid ?? 'Patient'),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: _isSubmitting
-                      ? null
-                      : (value) => setState(() => _selectedPatient = value),
-                  validator: (value) =>
-                      value == null ? 'Select a patient' : null,
-                ),
-                const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  value: _selectedDoctor,
-                  decoration: const InputDecoration(
-                    labelText: 'Doctor (optional)',
-                  ),
-                  items: widget.doctors
-                      .map(
-                        (doctor_provider.doctor d) => DropdownMenuItem(
-                          value: d.uid,
-                          child: Text(d.name ?? d.email ?? d.uid ?? 'Doctor'),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: _isSubmitting
-                      ? null
-                      : (value) => setState(() => _selectedDoctor = value),
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _nameController,
-                  decoration: const InputDecoration(labelText: 'Test name'),
-                  validator: (value) => value == null || value.isEmpty
-                      ? 'Name is required'
-                      : null,
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _descriptionController,
-                  decoration: const InputDecoration(labelText: 'Description'),
-                  maxLines: 3,
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _priceController,
-                  decoration: const InputDecoration(labelText: 'Price'),
-                  keyboardType: TextInputType.number,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Price is required';
-                    }
-                    if (double.tryParse(value.trim()) == null) {
-                      return 'Enter a valid amount';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _isSubmitting ? null : _submit,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: Text(
-                        _isSubmitting ? 'Creating...' : 'Create test',
-                      ),
-                    ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Price is required';
+                  }
+                  if (double.tryParse(value.trim()) == null) {
+                    return 'Enter a valid amount';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 32),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _isSubmitting ? null : _submit,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    child: Text(_isSubmitting ? 'Creating...' : 'Create test'),
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),

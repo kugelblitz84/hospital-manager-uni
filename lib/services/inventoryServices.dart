@@ -6,6 +6,9 @@ class InventoryServices {
     String description,
     int quantity,
     double price,
+    double unitPrice,
+    String unitType,
+    String itemType,
   ) async {
     try {
       final firestore = FirebaseFirestore.instance;
@@ -14,6 +17,9 @@ class InventoryServices {
         'description': description,
         'quantity': quantity,
         'price': price,
+        'unitPrice': unitPrice,
+        'unitType': unitType,
+        'itemType': itemType,
       });
       return {"status": "success", "itemId": itemDoc.id};
     } catch (e) {
